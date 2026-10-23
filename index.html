@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中心極限定理 (CLT) アニメーションシミュレーター</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .anim-dot {
+            position: fixed;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 50;
+            transform: translate(-50%, -50%); /* 中心基準で配置 */
+        }
+        
+        /* スライダーのカスタムスタイル */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+        input[type=range]:focus { outline: none; }
+        
+        .axis-label { font-size: 12px; fill: #64748b; }
+        .axis path, .axis line { stroke: #cbd5e1; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- ヘッダー -->
+    <header class="bg-blue-600 text-white shadow-md p-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <h1 class="text-xl font-bold tracking-tight">中心極限定理 (CLT) インタラクティブ・シミュレーター</h1>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="flex-grow max-w-[1400px] mx-auto w-full p-4 flex flex-col gap-4">
+        
+        <!-- コントロールパネル -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-wrap items-center gap-6">
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">母集団の分布 (Population)</label>
+                <select id="dist-select" class="w-full border-slate-300 rounded-md shadow-sm p-2 bg-slate-50 border focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    <option value="uniform">一様分布 (Uniform)</option>
+                    <option value="normal">正規分布 (Normal)</option>
+                    <option value="exponential">指数分布 (Exponential)</option>
+                    <option value="bimodal">双峰性分布 (Bimodal)</option>
+                    <option value="ushaped">U字型分布 (U-shaped)</option>
+                    <option value="poisson">ポアソン分布 (Poisson)</option>
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">サンプルサイズ (n)</label>
+                <select id="n-select" class="w-full border-slate-300 rounded-md shadow-sm p-2 bg-slate-50 border focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    <option value="1">1</option>
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+
+            <div class="flex-[2] min-w-[300px] flex flex-wrap gap-2 items-end">
+                <button id="btn-draw-1" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded shadow transition disabled:opacity-50">1回抽出</button>
+                <button id="btn-draw-100" class="flex-1 bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium py-2 px-3 rounded shadow transition disabled:opacity-50">100回抽出</button>
+                <button id="btn-draw-1000" class="flex-1 bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium py-2 px-3 rounded shadow transition disabled:opacity-50">1000回抽出</button>
+                <button id="btn-reset" class="bg-red-100 hover:bg-red-200 text-red-700 text-sm font-medium py-2 px-4 rounded transition disabled:opacity-50">リセット</button>
+            </div>
+        </div>
+
+        <!-- グラフエリア (左右分割) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-grow">
+            
+            <!-- 左パネル: 母集団 -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col relative">
+                <h2 class="text-center font-bold text-slate-700 mb-2">① 母集団の分布 (Population)</h2>
+                <p class="text-xs text-center text-slate-500 mb-4">ここから <span id="label-n" class="font-bold text-blue-600">5</span> 個のデータをランダムに抽出します</p>
+                <div id="chart-left" class="flex-grow w-full h-[400px] relative"></div>
+            </div>
+
+            <!-- 右パネル: 標本平均 -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col relative">
+                <h2 class="text-center font-bold text-slate-700 mb-2">② 標本平均の分布 (Sample Means)</h2>
+                <div class="text-xs text-center text-slate-500 mb-4 flex justify-center gap-4">
+                    <span>抽出回数: <span id="stat-count" class="font-bold text-emerald-600">0</span></span>
+                    <span class="flex items-center gap-1"><div class="w-3 h-1 bg-red-500"></div> 理論上の正規分布</span>
+                </div>
+                <div id="chart-right" class="flex-grow w-full h-[400px] relative"></div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // --- 統計分布の定義 ---
+        // 定義域は全て [0, 1] に正規化しています。
+        const distributions = {
+            uniform: {
+                domain: [0, 1],
+                mu: 0.5,
+                sigma: Math.sqrt(1/12),
+                pdf: (x) => (x >= 0 && x <= 1) ? 1 : 0,
+                gen: () => Math.random()
+            },
+            normal: {
+                domain: [0, 1],
+                mu: 0.5,
+                sigma: 0.15,
+                pdf: (x) => {
+                    const factor = 1 / (0.15 * Math.sqrt(2 * Math.PI));
+                    return factor * Math.exp(-Math.pow(x - 0.5, 2) / (2 * 0.15 * 0.15));
+                },
+                gen: () => {
+                    // Box-Muller transform
+                    let u1 = Math.random(), u2 = Math.random();
+                    let z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                    return 0.5 + 0.15 * z;
+                }
+            },
+            exponential: {
+                domain: [0, 5],
+                mu: 1,
+                sigma: 1,
+                pdf: (x) => (x >= 0) ? Math.exp(-x) : 0,
+                gen: () => -Math.log(1 - Math.random())
+            },
+            bimodal: {
+                domain: [0, 1],
+                mu: 0.5,
+                sigma: Math.sqrt(0.05),
+                pdf: (x) => {
+                    const f1 = (1 / (0.1 * Math.sqrt(2 * Math.PI))) * Math.exp(-Math.pow(x - 0.3, 2) / (2 * 0.01));
+                    const f2 = (1 / (0.1 * Math.sqrt(2 * Math.PI))) * Math.exp(-Math.pow(x - 0.7, 2) / (2 * 0.01));
+                    return 0.5 * f1 + 0.5 * f2;
+                },
+                gen: () => {
+                    let u1 = Math.random(), u2 = Math.random();
+                    let z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                    return (Math.random() < 0.5 ? 0.3 : 0.7) + 0.1 * z;
+                }
+            },
+            ushaped: {
+                domain: [0, 1],
+                mu: 0.5,
+                sigma: Math.sqrt(0.125),
+                pdf: (x) => {
+                    if (x <= 0.01) x = 0.01;
+                    if (x >= 0.99) x = 0.99;
+                    return 1 / (Math.PI * Math.sqrt(x * (1 - x)));
+                },
+                gen: () => Math.pow(Math.sin(Math.random() * Math.PI / 2), 2)
+            },
+            poisson: {
+                domain: [0, 15],
+                mu: 5,
+                sigma: Math.sqrt(5),
+                pdf: (x) => {
+                    let k = Math.round(x);
+                    if (k < 0) return 0;
+                    let fact = 1;
+                    for(let i=2; i<=k; i++) fact *= i;
+                    return Math.exp(-5) * Math.pow(5, k) / fact;
+                },
+                gen: () => {
+                    let L = Math.exp(-5);
+                    let p = 1.0;
+                    let k = 0;
+                    do {
+                        k++;
+                        p *= Math.random();
+                    } while (p > L);
+                    return k - 1;
+                }
+            }
+        };
+
+        // --- アプリケーション状態 ---
+        let state = {
+            distType: 'uniform',
+            n: 5,
+            sampleMeans: [],
+            isAnimating: false,
+            bins: 50 // ヒストグラムのビン数
+        };
+
+        // --- D3 グラフ設定 ---
+        const margin = { top: 20, right: 20, bottom: 40, left: 50 };
+        let widthLeft, heightLeft, widthRight, heightRight;
+        let svgLeft, svgRight;
+        let xScaleL, yScaleL, xScaleR, yScaleR;
+        
+        // --- 初期化処理 ---
+        function init() {
+            setupDOM();
+            setupCharts();
+            window.addEventListener('resize', handleResize);
+            updateAll();
+        }
+
+        function setupDOM() {
+            document.getElementById('dist-select').addEventListener('change', (e) => {
+                state.distType = e.target.value;
+                resetData();
+            });
+            
+            const nSelect = document.getElementById('n-select');
+            nSelect.addEventListener('change', (e) => {
+                state.n = parseInt(e.target.value);
+                document.getElementById('label-n').textContent = state.n;
+                resetData(); // nが変わると理論分布が変わるためリセット
+            });
+
+            document.getElementById('btn-draw-1').addEventListener('click', () => drawSamplesAnimated(1));
+            document.getElementById('btn-draw-100').addEventListener('click', () => drawSamplesInstant(100));
+            document.getElementById('btn-draw-1000').addEventListener('click', () => drawSamplesInstant(1000));
+            document.getElementById('btn-reset').addEventListener('click', resetData);
+        }
+
+        function resetData() {
+            state.sampleMeans = [];
+            document.getElementById('stat-count').textContent = '0';
+            updateAll();
+        }
+
+        function setButtonsState(disabled) {
+            state.isAnimating = disabled;
+            const buttons = document.querySelectorAll('button, select, input');
+            buttons.forEach(btn => btn.disabled = disabled);
+        }
+
+        // --- D3 グラフの構築 ---
+        function setupCharts() {
+            // 左チャート (母集団)
+            d3.select('#chart-left').selectAll('*').remove();
+            const containerL = document.getElementById('chart-left');
+            widthLeft = containerL.clientWidth - margin.left - margin.right;
+            heightLeft = containerL.clientHeight - margin.top - margin.bottom;
+
+            svgLeft = d3.select('#chart-left')
+                .append('svg')
+                .attr('width', widthLeft + margin.left + margin.right)
+                .attr('height', heightLeft + margin.top + margin.bottom)
+                .append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            xScaleL = d3.scaleLinear().domain([0, 1]).range([0, widthLeft]);
+            yScaleL = d3.scaleLinear().range([heightLeft, 0]); // Domain is set dynamically
+
+            svgLeft.append('g').attr('class', 'x-axis axis')
+                .attr('transform', `translate(0,${heightLeft})`)
+                .call(d3.axisBottom(xScaleL));
+            svgLeft.append('g').attr('class', 'y-axis axis');
+            svgLeft.append('path').attr('class', 'pop-area');
+            svgLeft.append('path').attr('class', 'pop-line');
+
+            // 右チャート (標本平均)
+            d3.select('#chart-right').selectAll('*').remove();
+            const containerR = document.getElementById('chart-right');
+            widthRight = containerR.clientWidth - margin.left - margin.right;
+            heightRight = containerR.clientHeight - margin.top - margin.bottom;
+
+            svgRight = d3.select('#chart-right')
+                .append('svg')
+                .attr('width', widthRight + margin.left + margin.right)
+                .attr('height', heightRight + margin.top + margin.bottom)
+                .append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            xScaleR = d3.scaleLinear().domain([0, 1]).range([0, widthRight]);
+            yScaleR = d3.scaleLinear().range([heightRight, 0]);
+
+            svgRight.append('g').attr('class', 'x-axis axis')
+                .attr('transform', `translate(0,${heightRight})`)
+                .call(d3.axisBottom(xScaleR));
+            svgRight.append('g').attr('class', 'y-axis axis');
+            svgRight.append('g').attr('class', 'bars-group');
+            svgRight.append('path').attr('class', 'theory-line');
+            
+            // Y軸ラベル
+            svgLeft.append("text").attr("transform", "rotate(-90)").attr("y", -40).attr("x", -heightLeft/2)
+                .attr("text-anchor", "middle").attr("class", "axis-label").text("確率密度 (Density)");
+            svgRight.append("text").attr("transform", "rotate(-90)").attr("y", -40).attr("x", -heightRight/2)
+                .attr("text-anchor", "middle").attr("class", "axis-label").text("確率密度 (Density)");
+        }
+
+        function handleResize() {
+            if (state.isAnimating) return; // アニメーション中はリサイズ無視
+            setupCharts();
+            updateAll();
+        }
+
+        // --- 描画更新処理 ---
+        function updateAll() {
+            updateLeftChart();
+            updateRightChart();
+        }
+
+        function updateLeftChart() {
+            const dist = distributions[state.distType];
+            
+            // X軸スケールの更新
+            xScaleL.domain(dist.domain);
+            svgLeft.select('.x-axis').transition().duration(300).call(d3.axisBottom(xScaleL));
+
+            // X座標の配列を生成して曲線を引く
+            let data;
+            if (state.distType === 'poisson') {
+                data = d3.range(dist.domain[0], dist.domain[1] + 1, 1).map(x => ({ x: x, y: dist.pdf(x) }));
+            } else {
+                const step = (dist.domain[1] - dist.domain[0]) / 100;
+                data = d3.range(dist.domain[0], dist.domain[1] + step, step).map(x => ({ x: x, y: dist.pdf(x) }));
+            }
+            const yMax = d3.max(data, d => d.y) * 1.1;
+            
+            yScaleL.domain([0, yMax]);
+            svgLeft.select('.y-axis').transition().duration(300).call(d3.axisLeft(yScaleL).ticks(5));
+
+            const area = d3.area()
+                .x(d => xScaleL(d.x))
+                .y0(heightLeft)
+                .y1(d => yScaleL(d.y))
+                .curve(d3.curveMonotoneX);
+
+            const line = d3.line()
+                .x(d => xScaleL(d.x))
+                .y(d => yScaleL(d.y))
+                .curve(d3.curveMonotoneX);
+
+            svgLeft.select('.pop-area')
+                .datum(data)
+                .transition().duration(300)
+                .attr('d', area)
+                .attr('fill', '#bfdbfe') // blue-200
+                .attr('opacity', 0.5);
+
+            svgLeft.select('.pop-line')
+                .datum(data)
+                .transition().duration(300)
+                .attr('d', line)
+                .attr('fill', 'none')
+                .attr('stroke', '#3b82f6') // blue-500
+                .attr('stroke-width', 2);
+        }
+
+        function updateRightChart(animateBars = true) {
+            const dist = distributions[state.distType];
+            const theoreticalMu = dist.mu;
+            const theoreticalSigma = dist.sigma / Math.sqrt(state.n);
+
+            // X軸スケールの更新
+            xScaleR.domain(dist.domain);
+            svgRight.select('.x-axis').transition().duration(animateBars ? 200 : 0).call(d3.axisBottom(xScaleR));
+
+            // ヒストグラム用のビン生成
+            const binGen = d3.bin().domain(dist.domain).thresholds(state.bins);
+            const bins = binGen(state.sampleMeans);
+            const binWidth = (dist.domain[1] - dist.domain[0]) / state.bins;
+
+            // 確率密度の計算: (ビンの度数) / (全データ数 * ビン幅)
+            const count = state.sampleMeans.length;
+            bins.forEach(b => {
+                b.density = count > 0 ? b.length / (count * binWidth) : 0;
+            });
+
+            // 理論曲線のピーク
+            const theoryPeak = 1 / (theoreticalSigma * Math.sqrt(2 * Math.PI));
+            // Y軸の最大値 (理論値か実際のデータか大きい方)
+            const maxDensity = d3.max(bins, d => d.density);
+            const yMax = Math.max(theoryPeak, maxDensity || 0) * 1.1;
+
+            yScaleR.domain([0, yMax]);
+            svgRight.select('.y-axis').transition().duration(animateBars ? 200 : 0).call(d3.axisLeft(yScaleR).ticks(5));
+
+            // バーの描画
+            const bars = svgRight.select('.bars-group').selectAll('rect').data(bins);
+            
+            bars.enter().append('rect')
+                .attr('x', d => xScaleR(d.x0))
+                .attr('width', d => Math.max(0, xScaleR(d.x1) - xScaleR(d.x0) - 1))
+                .attr('y', heightRight)
+                .attr('height', 0)
+                .attr('fill', '#10b981') // emerald-500
+                .attr('opacity', 0.8)
+                .merge(bars)
+                .transition().duration(animateBars ? 200 : 0)
+                .attr('x', d => xScaleR(d.x0))
+                .attr('width', d => Math.max(0, xScaleR(d.x1) - xScaleR(d.x0) - 1))
+                .attr('y', d => yScaleR(d.density))
+                .attr('height', d => heightRight - yScaleR(d.density));
+
+            bars.exit().remove();
+
+            // 理論上の正規分布曲線の描画
+            const stepR = (dist.domain[1] - dist.domain[0]) / 100;
+            const theoryData = d3.range(dist.domain[0], dist.domain[1] + stepR, stepR).map(x => {
+                const factor = 1 / (theoreticalSigma * Math.sqrt(2 * Math.PI));
+                const y = factor * Math.exp(-Math.pow(x - theoreticalMu, 2) / (2 * theoreticalSigma * theoreticalSigma));
+                return { x, y };
+            });
+
+            const theoryLine = d3.line()
+                .x(d => xScaleR(d.x))
+                .y(d => yScaleR(d.y))
+                .curve(d3.curveMonotoneX);
+
+            svgRight.select('.theory-line')
+                .datum(theoryData)
+                .transition().duration(300)
+                .attr('d', theoryLine)
+                .attr('fill', 'none')
+                .attr('stroke', '#ef4444') // red-500
+                .attr('stroke-width', 2)
+                .attr('stroke-dasharray', '4 4');
+        }
+
+        // --- アニメーションとサンプリング ---
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+
+        function getScreenCoords(svgNode, margin, xScale, yScale, x, y) {
+            const rect = svgNode.getBoundingClientRect();
+            return {
+                x: rect.left + margin.left + xScale(x),
+                y: rect.top + margin.top + yScale(y)
+            };
+        }
+
+        async function drawSamplesAnimated(times) {
+            setButtonsState(true);
+            const dist = distributions[state.distType];
+            const speedFactor = times > 1 ? 4 : 1; // 10回時は高速化
+
+            for (let i = 0; i < times; i++) {
+                // 1. サンプル抽出
+                const samples = [];
+                for(let j=0; j<state.n; j++) samples.push(dist.gen());
+                const mean = samples.reduce((a,b)=>a+b, 0) / state.n;
+
+                // DOMノード取得（座標計算用）
+                const svgL = document.querySelector('#chart-left svg');
+                const svgR = document.querySelector('#chart-right svg');
+
+                // 2. 左グラフ上にドットを出現させる (描画負荷を考慮し最大50個に制限)
+                const dots = [];
+                const displaySamples = samples.length > 50 ? samples.slice(0, 50) : samples;
+                displaySamples.forEach(val => {
+                    const dot = document.createElement('div');
+                    dot.className = 'anim-dot bg-amber-400 border border-amber-600 shadow-sm';
+                    dot.style.width = '12px';
+                    dot.style.height = '12px';
+                    
+                    // 初期位置（上部）
+                    const startPos = getScreenCoords(svgL, margin, xScaleL, yScaleL, val, yScaleL.domain()[1]);
+                    // 目標位置（PDF曲線の下のランダムな高さ）
+                    const targetYVal = Math.random() * dist.pdf(val);
+                    const endPos = getScreenCoords(svgL, margin, xScaleL, yScaleL, val, targetYVal);
+
+                    dot.style.left = startPos.x + 'px';
+                    dot.style.top = startPos.y + 'px';
+                    dot.style.transition = `top ${400/speedFactor}ms cubic-bezier(0.25, 0.46, 0.45, 0.94), left ${400/speedFactor}ms linear, transform ${400/speedFactor}ms, opacity 200ms`;
+                    
+                    document.body.appendChild(dot);
+                    dots.push({ el: dot, val: val, endPos });
+                });
+
+                // リフロー強制
+                void document.body.offsetHeight;
+
+                // 落下アニメーション
+                dots.forEach(d => {
+                    d.el.style.top = d.endPos.y + 'px';
+                });
+                await wait(500 / speedFactor);
+
+                // 3. ドットが平均値の場所に集まる
+                const meanPosL = getScreenCoords(svgL, margin, xScaleL, yScaleL, mean, 0); // 下部
+                dots.forEach(d => {
+                    d.el.style.left = meanPosL.x + 'px';
+                    d.el.style.top = meanPosL.y + 'px';
+                    d.el.style.transform = 'translate(-50%, -50%) scale(0.5)';
+                    d.el.style.opacity = '0.5';
+                });
+                await wait(400 / speedFactor);
+
+                // ドットを消去し、1つの「平均ドット」を生成
+                dots.forEach(d => d.el.remove());
+
+                const meanDot = document.createElement('div');
+                meanDot.className = 'anim-dot bg-fuchsia-600 border-2 border-white shadow-md';
+                meanDot.style.width = '16px';
+                meanDot.style.height = '16px';
+                meanDot.style.left = meanPosL.x + 'px';
+                meanDot.style.top = meanPosL.y + 'px';
+                meanDot.style.transition = `top ${600/speedFactor}ms ease-in-out, left ${600/speedFactor}ms ease-in-out, transform 200ms`;
+                document.body.appendChild(meanDot);
+
+                await wait(50 / speedFactor); // 少し待つ
+
+                // 4. 右グラフの該当するビンへ飛んでいく
+                // 一旦配列に追加して、そのあとの密度を計算してY座標を決定する
+                state.sampleMeans.push(mean);
+                document.getElementById('stat-count').textContent = state.sampleMeans.length;
+
+                // 仮想的にビン計算をして、目標の高さを出す
+                const binGen = d3.bin().domain(dist.domain).thresholds(state.bins);
+                const currentBins = binGen(state.sampleMeans);
+                const targetBin = currentBins.find(b => mean >= b.x0 && mean <= b.x1) || currentBins[0];
+                const binWidth = (dist.domain[1] - dist.domain[0]) / state.bins;
+                const newDensity = targetBin.length / (state.sampleMeans.length * binWidth);
+                
+                // Yスケールが拡張される可能性を考慮
+                const theoryPeak = 1 / ((dist.sigma / Math.sqrt(state.n)) * Math.sqrt(2 * Math.PI));
+                const currentMaxDensity = d3.max(currentBins, d => d.length / (state.sampleMeans.length * (1/state.bins)));
+                const tempYMax = Math.max(theoryPeak, currentMaxDensity) * 1.1;
+                yScaleR.domain([0, tempYMax]);
+
+                const binCenterX = (targetBin.x0 + targetBin.x1) / 2;
+                const meanPosR = getScreenCoords(svgR, margin, xScaleR, yScaleR, binCenterX, newDensity);
+
+                meanDot.style.left = meanPosR.x + 'px';
+                meanDot.style.top = meanPosR.y + 'px';
+
+                await wait(600 / speedFactor);
+
+                // 5. 到着後、ドットを消してグラフを更新
+                meanDot.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                meanDot.style.opacity = '0';
+                await wait(100 / speedFactor);
+                meanDot.remove();
+
+                updateRightChart(true); // バーのアニメーションあり
+            }
+            setButtonsState(false);
+        }
+
+        // 一瞬で大量に計算する処理（アニメーションなし）
+        function drawSamplesInstant(times) {
+            const dist = distributions[state.distType];
+            for (let i = 0; i < times; i++) {
+                let sum = 0;
+                for(let j=0; j<state.n; j++) sum += dist.gen();
+                state.sampleMeans.push(sum / state.n);
+            }
+            document.getElementById('stat-count').textContent = state.sampleMeans.length;
+            updateRightChart(false); // 即座に更新
+        }
+
+        // 起動
+        window.onload = init;
+
+    </script>
+</body>
+</html>
